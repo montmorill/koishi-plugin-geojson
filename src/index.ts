@@ -9,11 +9,13 @@ import reproject from 'reproject-spherical-mercator'
 export const name = 'geojson'
 
 export interface Config {
-  colors: string[]
+  defaultDot: number
+  palette: string[]
 }
 
 export const Config: Schema<Config> = Schema.object({
-  colors: Schema.array(Schema.string().role('color')).default([
+  defaultDot: Schema.number().min(0).default(2),
+  palette: Schema.array(Schema.string().role('color')).default([
     'rgba(236,  85, 158, 0.5)',
     'rgba(236, 133,  45, 0.5)',
     'rgba(136,  65, 220, 0.5)',
@@ -23,25 +25,11 @@ export const Config: Schema<Config> = Schema.object({
   ]),
 })
 
-function resolveViewportSize({ width, height }: Partial<ScreenDims> = {}): ScreenDims {
+function resolveViewport({ width, height }: Partial<ScreenDims> = {}): ScreenDims {
   return {
     width: width ?? 640,
     height: height ?? 480,
   }
-}
-
-function remap(
-  x: number,
-  inMin: number,
-  inMax: number,
-  outMin: number,
-  outMax: number,
-  clamp = false,
-) {
-  let ratio = (x - inMin) / (inMax - inMin)
-  if (clamp)
-    ratio = Math.max(0, Math.min(1, ratio))
-  return outMin + (outMax - outMin) * ratio
 }
 
 export function apply(ctx: Context, config: Config) {
@@ -68,35 +56,52 @@ export function apply(ctx: Context, config: Config) {
   ctx.command('geojson <data:string>')
     .option('width', '-W <width:posint>')
     .option('height', '-H <height:posint>')
+    .option('graph', '-G')
+    .option('dot', '-D [radius:number]')
     .option('label', '-L')
     .action(async ({ options }, data) => {
+      if (options?.dot === 0)
+        options.dot = config.defaultDot
       const geojson = reproject(await resolveGeojson(data))
-      const viewportSize = resolveViewportSize(options)
+      const viewport = resolveViewport(options)
       const [west, south, east, north] = geojsonBbox(geojson)
-      const mercatorSize = { width: east - west, height: north - south }
-      const mercatorRatio = mercatorSize.width / mercatorSize.height
-      const viewportRatio = viewportSize.width / viewportSize.height
-      const zoomRatio = mercatorRatio / viewportRatio
-      const delta = mercatorSize.width / Math.min(1, viewportRatio)
-        - mercatorSize.height * Math.max(1, viewportRatio)
+      const mercator = { width: east - west, height: north - south }
+      const mercatorRatio = mercator.width / mercator.height
+      const viewportRatio = viewport.width / viewport.height
+      const delta = mercator.width / Math.min(1, viewportRatio)
+        - mercator.height * Math.max(1, viewportRatio)
       const dx = Math.max(-delta, 0) / 2
-      const dy = -Math.max(delta, 0) / 2
-      const converter = new GeoJSON2SVG({ viewportSize, attributes })
+      const dy = -Math.max(delta, 0) / (2 * viewportRatio)
+      const converter = new GeoJSON2SVG({ viewportSize: viewport, attributes })
       const svgPaths = converter.convert(geojson, {
         coordinateConverter: ([x, y]) => [x + dx, y + dy],
       }).flatMap(h.parse)
-      return h('html', h('svg', viewportSize, ...svgPaths, ...svgPaths.flatMap((path) => {
-        const elements = []
-        path.attrs.fill = config.colors[path.attrs.dataColorId - 1]
-        if (options?.label) {
+      const zoomRatio = mercatorRatio / viewportRatio
+      const elements = options?.graph ? [...svgPaths] : []
+      svgPaths.forEach((path) => {
+        path.attrs.fill = config.palette[path.attrs.dataColorId - 1]
+        if (options?.dot || options?.label) {
           let [cx, cy]: [number, number] = [path.attrs.dataLon, path.attrs.dataLat];
           [cx, cy] = reproject({ type: 'Point', coordinates: [cx, cy] }).coordinates
-          cx = remap(cx + dx - west, 0, mercatorSize.width, 0, viewportSize.width * Math.min(1, zoomRatio))
-          cy = remap(cy + dy - south, 0, mercatorSize.height, viewportSize.height / Math.max(1, zoomRatio), 0)
-          elements.push(h('circle', { cx, cy, r: 2, fill: 'black' }))
-          elements.push(h('text', { x: cx, y: cy }, path.attrs.dataName))
+          cx = remap(cx + dx - west, 0, mercator.width, 0, viewport.width * Math.min(1, zoomRatio))
+          cy = remap(cy + dy - south, 0, mercator.height, viewport.height / Math.max(1, zoomRatio), 0)
+          options?.dot && elements.push(h('circle', { cx, cy, r: options.dot, fill: 'black' }))
+          options?.label && elements.push(h('text', { x: cx, y: cy }, path.attrs.dataName))
         }
-        return elements
-      })))
+      })
+      return h('html', h('svg', viewport, ...elements))
     })
+}
+
+function remap(
+  x: number,
+  inMin: number,
+  inMax: number,
+  outMin: number,
+  outMax: number,
+  clamp = false,
+) {
+  let ratio = (x - inMin) / (inMax - inMin)
+  clamp && (ratio = Math.max(0, Math.min(1, ratio)))
+  return outMin + (outMax - outMin) * ratio
 }
