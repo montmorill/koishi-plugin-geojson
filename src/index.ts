@@ -75,8 +75,8 @@ export function apply(ctx: Context, config: Config) {
         - dataSize.height * Math.max(1, viewAspectRatio)
       const [dx, dy] = [Math.max(-delta, 0) / 2, -Math.max(delta, 0) / 2]
       const coordinateConverter: Options['coordinateConverter'] = ([x, y]) => [x + dx, y + dy]
-      const converter = new GeoJSON2SVG({ viewportSize, attributes, coordinateConverter })
-      const svgPaths = converter.convert(geojson).flatMap(h.parse)
+      const converter = new GeoJSON2SVG({ viewportSize, attributes })
+      const svgPaths = converter.convert(geojson, { coordinateConverter }).flatMap(h.parse)
       svgPaths.forEach(path => path.attrs.fill = config.palette[path.attrs.dataColorId - 1])
       const elements = options?.graph ? [...svgPaths] : []
       options?.dot && options?.label && svgPaths.forEach((path) => {
