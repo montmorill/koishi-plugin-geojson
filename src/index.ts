@@ -25,11 +25,15 @@ export const Config: Schema<Config> = Schema.object({
   ]),
 })
 
-function resolveViewport({ width, height }: Partial<ScreenDims> = {}): ScreenDims {
-  return {
-    width: width ?? 640,
-    height: height ?? 480,
-  }
+function resolveScreenDims(
+  { width, height }: Partial<ScreenDims> = {},
+  aspectRatio?: number,
+): ScreenDims {
+  if (!width)
+    width = aspectRatio && height ? height * aspectRatio : 640
+  if (!height)
+    height = aspectRatio ? (width ?? 0) / aspectRatio : 480
+  return { width, height }
 }
 
 export function apply(ctx: Context, config: Config) {
@@ -63,10 +67,10 @@ export function apply(ctx: Context, config: Config) {
       if (options?.dot === 0)
         options.dot = config.defaultDot
       const geojson = reproject(await resolveGeojson(data))
-      const viewportSize = resolveViewport(options)
       const [west, south, east, north] = geojsonBbox(geojson)
       const dataSize = { width: east - west, height: north - south }
       const dataAspectRatio = dataSize.width / dataSize.height
+      const viewportSize = resolveScreenDims(options, dataAspectRatio)
       const viewAspectRatio = viewportSize.width / viewportSize.height
       const scaleFactor = dataAspectRatio / viewAspectRatio
       const contentWidth = viewportSize.width * Math.min(1, scaleFactor)
