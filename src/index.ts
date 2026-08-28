@@ -1,5 +1,5 @@
 import type { GeoJSON } from 'geojson'
-import type { ScreenDims } from 'geojson2svg'
+import type { Options, ScreenDims } from 'geojson2svg'
 import type { Context } from 'koishi'
 import { GeoJSON2SVG } from 'geojson2svg'
 import geojsonBbox from 'geojson-bbox'
@@ -63,33 +63,31 @@ export function apply(ctx: Context, config: Config) {
       if (options?.dot === 0)
         options.dot = config.defaultDot
       const geojson = reproject(await resolveGeojson(data))
-      const viewport = resolveViewport(options)
+      const viewportSize = resolveViewport(options)
       const [west, south, east, north] = geojsonBbox(geojson)
-      const mercator = { width: east - west, height: north - south }
-      const mercatorRatio = mercator.width / mercator.height
-      const viewportRatio = viewport.width / viewport.height
-      const delta = mercator.width / Math.min(1, viewportRatio)
-        - mercator.height * Math.max(1, viewportRatio)
-      const dx = Math.max(-delta, 0) / 2
-      const dy = -Math.max(delta, 0) / 2
-      const converter = new GeoJSON2SVG({ viewportSize: viewport, attributes })
-      const svgPaths = converter.convert(geojson, {
-        coordinateConverter: ([x, y]) => [x + dx, y + dy],
-      }).flatMap(h.parse)
-      const zoomRatio = mercatorRatio / viewportRatio
+      const dataSize = { width: east - west, height: north - south }
+      const dataAspectRatio = dataSize.width / dataSize.height
+      const viewAspectRatio = viewportSize.width / viewportSize.height
+      const scaleFactor = dataAspectRatio / viewAspectRatio
+      const contentWidth = viewportSize.width * Math.min(1, scaleFactor)
+      const contentHeight = viewportSize.height / Math.max(1, scaleFactor)
+      const delta = dataSize.width / Math.min(1, viewAspectRatio)
+        - dataSize.height * Math.max(1, viewAspectRatio)
+      const [dx, dy] = [Math.max(-delta, 0) / 2, -Math.max(delta, 0) / 2]
+      const coordinateConverter: Options['coordinateConverter'] = ([x, y]) => [x + dx, y + dy]
+      const converter = new GeoJSON2SVG({ viewportSize, attributes, coordinateConverter })
+      const svgPaths = converter.convert(geojson).flatMap(h.parse)
+      svgPaths.forEach(path => path.attrs.fill = config.palette[path.attrs.dataColorId - 1])
       const elements = options?.graph ? [...svgPaths] : []
-      svgPaths.forEach((path) => {
-        path.attrs.fill = config.palette[path.attrs.dataColorId - 1]
-        if (options?.dot || options?.label) {
-          let [cx, cy]: [number, number] = [path.attrs.dataLon, path.attrs.dataLat];
-          [cx, cy] = reproject({ type: 'Point', coordinates: [cx, cy] }).coordinates
-          cx = remap(cx + dx - west, 0, mercator.width, 0, viewport.width * Math.min(1, zoomRatio))
-          cy = remap(cy + dy - south, 0, mercator.height, viewport.height / Math.max(1, zoomRatio), 0)
-          options?.dot && elements.push(h('circle', { cx, cy, r: options.dot, fill: 'black' }))
-          options?.label && elements.push(h('text', { x: cx, y: cy }, path.attrs.dataName))
-        }
+      options?.dot && options?.label && svgPaths.forEach((path) => {
+        let [cx, cy]: [number, number] = [path.attrs.dataLon, path.attrs.dataLat];
+        [cx, cy] = reproject({ type: 'Point', coordinates: [cx, cy] }).coordinates
+        cx = remap(cx + dx - west, 0, dataSize.width, 0, contentWidth)
+        cy = remap(cy + dy - south, 0, dataSize.height, contentHeight, 0)
+        options?.dot && elements.push(h('circle', { cx, cy, r: options.dot, fill: 'black' }))
+        options?.label && elements.push(h('text', { x: cx, y: cy }, path.attrs.dataName))
       })
-      return h('html', h('svg', viewport, ...elements))
+      return h('html', h('svg', viewportSize, ...elements))
     })
 }
 
