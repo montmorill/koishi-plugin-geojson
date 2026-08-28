@@ -82,16 +82,17 @@ export function apply(ctx: Context, config: Config) {
       const converter = new GeoJSON2SVG({ viewportSize, attributes })
       const svgPaths = converter.convert(geojson, { coordinateConverter }).flatMap(h.parse)
       svgPaths.forEach(path => path.attrs.fill = config.palette[path.attrs.dataColorId - 1])
-      const elements = options?.graph ? [...svgPaths] : []
-      options?.dot && options?.label && svgPaths.forEach((path) => {
+      const svg = h('svg', viewportSize)
+      options?.graph && svg.children.push(...svgPaths);
+      (options?.dot || options?.label) && svgPaths.forEach((path) => {
         let [cx, cy]: [number, number] = [path.attrs.dataLon, path.attrs.dataLat];
         [cx, cy] = reproject({ type: 'Point', coordinates: [cx, cy] }).coordinates
         cx = remap(cx + dx - west, 0, dataSize.width, 0, contentWidth)
         cy = remap(cy + dy - south, 0, dataSize.height, contentHeight, 0)
-        options?.dot && elements.push(h('circle', { cx, cy, r: options.dot, fill: 'black' }))
-        options?.label && elements.push(h('text', { x: cx, y: cy }, path.attrs.dataName))
+        options?.dot && svg.children.push(h('circle', { cx, cy, r: options.dot, fill: 'black' }))
+        options?.label && svg.children.push(h('text', { x: cx, y: cy }, path.attrs.dataName))
       })
-      return h('html', h('svg', viewportSize, ...elements))
+      return h('html', svg)
     })
 }
 
