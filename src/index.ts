@@ -71,7 +71,7 @@ export function apply(ctx: Context, config: Config) {
       const delta = mercator.width / Math.min(1, viewportRatio)
         - mercator.height * Math.max(1, viewportRatio)
       const dx = Math.max(-delta, 0) / 2
-      const dy = -Math.max(delta, 0) / (2 * viewportRatio)
+      const dy = -Math.max(delta, 0) / 2
       const converter = new GeoJSON2SVG({ viewportSize: viewport, attributes })
       const svgPaths = converter.convert(geojson, {
         coordinateConverter: ([x, y]) => [x + dx, y + dy],
