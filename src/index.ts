@@ -79,18 +79,23 @@ export function apply(ctx: Context, config: Config) {
       const contentHeight = viewportSize.height / Math.max(1, scaleFactor)
       const converter = new GeoJSON2SVG({ viewportSize, attributes })
       const svgPaths = converter.convert(geojson).flatMap(h.parse)
-      return h('html', h('svg', viewportSize, svgPaths.map(({ attrs: { d, ...props } }) => {
-        let [cx, cy]: [number, number] = [props.X, props.Y];
-        [cx, cy] = reproject({ type: 'Point', coordinates: [cx, cy] }).coordinates
-        cx = remap(cx - west, 0, dataSize.width, 0, contentWidth)
-        cy = remap(cy - south, 0, dataSize.height, contentHeight, 0)
-        return h('g', props, [
-          options?.graph && h('path', { d, fill: config.palette[props.COLORID - 1] }),
-          options?.dot && h('circle', { cx, cy, r: options.dot, fill: 'black' }),
-          options?.code && h('text', { x: cx, y: cy }, props.XZQH),
-          options?.label && h('text', { x: cx, y: cy }, props.TSMC),
-        ].filter(maybeElement => h.isElement(maybeElement)))
-      })))
+      const children: h[] = []
+      children.push(...svgPaths.map(({ attrs }) =>
+        h('path', { ...attrs, fill: config.palette[attrs.COLORID - 1] })))
+      if (options?.dot || options?.code || options?.label) {
+        children.push(...svgPaths.map(({ attrs: { d, ...props } }) => {
+          let [cx, cy]: [number, number] = [props.X, props.Y];
+          [cx, cy] = reproject({ type: 'Point', coordinates: [cx, cy] }).coordinates
+          cx = remap(cx - west, 0, dataSize.width, 0, contentWidth)
+          cy = remap(cy - south, 0, dataSize.height, contentHeight, 0)
+          return h('g', props, [
+            options?.dot && h('circle', { cx, cy, r: options.dot, fill: 'black' }),
+            options?.code && h('text', { x: cx, y: cy }, props.XZQH),
+            options?.label && h('text', { x: cx, y: cy }, props.TSMC),
+          ].filter(maybeElement => h.isElement(maybeElement)))
+        }))
+      }
+      return h('html', h('svg', viewportSize, children))
     })
 }
 
