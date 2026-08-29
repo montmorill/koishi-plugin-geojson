@@ -1,4 +1,4 @@
-import type { GeoJSON } from 'geojson'
+import type { Feature, FeatureCollection, GeoJSON } from 'geojson'
 import type { Options, ScreenDims } from 'geojson2svg'
 import type { Context } from 'koishi'
 import { GeoJSON2SVG } from 'geojson2svg'
@@ -36,16 +36,21 @@ function resolveScreenDims(
   return { width, height }
 }
 
+const baseURL = 'https://dmfw.mca.gov.cn/js/map/subject/'
 export function apply(ctx: Context, config: Config) {
-  async function resolveGeojson(data: string) {
-    let geojson!: GeoJSON
+  async function resolveGeojson(data: string): Promise<GeoJSON> {
     if (/^\d{2}$/.test(data))
-      data = `https://dmfw.mca.gov.cn/js/map/subject/${data}.json`
+      return await ctx.http.get(`${data}.json`, { baseURL })
     if (/^\d{4}$/.test(data))
-      data = `https://dmfw.mca.gov.cn/js/map/subject/city/${data}.json`
+      return await ctx.http.get(`city/${data}.json`, { baseURL })
+    if (/^\d{6}$/.test(data)) {
+      const fc = await ctx.http.get<FeatureCollection>(`${data.slice(0, 4)}.json`, { baseURL })
+      fc.features = fc.features.filter(feature => feature.properties?.XZQH === data)
+      return fc
+    }
     if (/^https?:\/\//.test(data))
-      geojson = await ctx.http.get(data)
-    return geojson ??= JSON.parse(data)
+      return await ctx.http.get(data)
+    return JSON.parse(data)
   }
 
   const attributes = [
@@ -78,8 +83,8 @@ export function apply(ctx: Context, config: Config) {
       const delta = dataSize.width / Math.min(1, viewAspectRatio)
         - dataSize.height * Math.max(1, viewAspectRatio)
       const [dx, dy] = [Math.max(-delta, 0) / 2, -Math.max(delta, 0) / 2]
-      const coordinateConverter: Options['coordinateConverter'] = ([x, y]) => [x + dx, y + dy]
       const converter = new GeoJSON2SVG({ viewportSize, attributes })
+      const coordinateConverter: Options['coordinateConverter'] = ([x, y]) => [x + dx, y + dy]
       const svgPaths = converter.convert(geojson, { coordinateConverter }).flatMap(h.parse)
       svgPaths.forEach(path => path.attrs.fill = config.palette[path.attrs.dataColorId - 1])
       const svg = h('svg', viewportSize)
