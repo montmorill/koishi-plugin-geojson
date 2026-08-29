@@ -67,6 +67,7 @@ export function apply(ctx: Context, config: Config) {
     .option('height', '-H <height:posint>')
     .option('graph', '-G')
     .option('dot', '-D [radius:number]')
+    .option('code', '-C')
     .option('label', '-L')
     .action(async ({ options }, data) => {
       if (options?.dot === 0)
@@ -89,12 +90,13 @@ export function apply(ctx: Context, config: Config) {
       svgPaths.forEach(path => path.attrs.fill = config.palette[path.attrs.dataColorId - 1])
       const svg = h('svg', viewportSize)
       options?.graph && svg.children.push(...svgPaths);
-      (options?.dot || options?.label) && svgPaths.forEach((path) => {
+      (options?.dot || options?.code || options?.label) && svgPaths.forEach((path) => {
         let [cx, cy]: [number, number] = [path.attrs.dataLon, path.attrs.dataLat];
         [cx, cy] = reproject({ type: 'Point', coordinates: [cx, cy] }).coordinates
         cx = remap(cx + dx - west, 0, dataSize.width, 0, contentWidth)
         cy = remap(cy + dy - south, 0, dataSize.height, contentHeight, 0)
         options?.dot && svg.children.push(h('circle', { cx, cy, r: options.dot, fill: 'black' }))
+        options?.code && svg.children.push(h('text', { x: cx, y: cy }, path.attrs.dataCode))
         options?.label && svg.children.push(h('text', { x: cx, y: cy }, path.attrs.dataName))
       })
       return h('html', svg)
