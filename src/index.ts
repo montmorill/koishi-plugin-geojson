@@ -17,14 +17,8 @@ export interface Config {
 export const Config: Schema<Config> = Schema.object({
   defaultArea: Schema.number().min(0).default(640 * 480),
   defaultDot: Schema.number().min(0).default(1),
-  palette: Schema.array(Schema.string().role('color')).default([
-    'rgba(236,  85, 158, 0.5)',
-    'rgba(236, 133,  45, 0.5)',
-    'rgba(136,  65, 220, 0.5)',
-    'rgba(184, 228,  86, 0.5)',
-    'rgba(55,   81, 169, 0.5)',
-    'rgba(231, 122, 122, 0.5)',
-  ]),
+  palette: Schema.array(Schema.string().role('color'))
+    .default(['#F5AACE', '#F5C296', '#C3A0ED', '#DBF1AA', '#9BA8D4', '#F3BCBC']),
 })
 
 const attributes = [
