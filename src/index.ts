@@ -1,4 +1,4 @@
-import type { Feature, FeatureCollection, GeoJSON } from 'geojson'
+import type { FeatureCollection, GeoJSON } from 'geojson'
 import type { Options, ScreenDims } from 'geojson2svg'
 import type { Context } from 'koishi'
 import { GeoJSON2SVG } from 'geojson2svg'
@@ -44,7 +44,7 @@ export function apply(ctx: Context, config: Config) {
     if (/^\d{4}$/.test(data))
       return await ctx.http.get(`city/${data}.json`, { baseURL })
     if (/^\d{6}$/.test(data)) {
-      const fc = await ctx.http.get<FeatureCollection>(`${data.slice(0, 4)}.json`, { baseURL })
+      const fc = await ctx.http.get<FeatureCollection>(`city/${data.slice(0, 4)}.json`, { baseURL })
       fc.features = fc.features.filter(feature => feature.properties?.XZQH === data)
       return fc
     }
