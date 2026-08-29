@@ -60,9 +60,9 @@ export function apply(ctx: Context, config: Config) {
   }
 
   ctx.command('geojson <data:string>')
-    .option('area', '--area <area:posint>')
+    .option('area', '-A <area:posint>')
     .option('graph', '-G')
-    .option('dot', '-r [radius:number]')
+    .option('dot', '-D [radius:number]')
     .option('code', '-C')
     .option('label', '-L')
     .action(async ({ options }, data) => {
