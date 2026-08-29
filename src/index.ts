@@ -1,5 +1,5 @@
 import type { FeatureCollection, GeoJSON } from 'geojson'
-import type { Options, ScreenDims } from 'geojson2svg'
+import type { DynamicAttribute, Options, ScreenDims } from 'geojson2svg'
 import type { Context } from 'koishi'
 import { GeoJSON2SVG } from 'geojson2svg'
 import geojsonBbox from 'geojson-bbox'
@@ -25,19 +25,28 @@ export const Config: Schema<Config> = Schema.object({
   ]),
 })
 
-function resolveScreenDims(
-  { width, height }: Partial<ScreenDims> = {},
-  aspectRatio?: number,
-): ScreenDims {
-  if (!width)
-    width = aspectRatio && height ? height * aspectRatio : 640
-  if (!height)
-    height = aspectRatio ? (width ?? 0) / aspectRatio : 480
-  return { width, height }
-}
+const attributes = [
+  { type: 'dynamic', property: 'properties.TYPE' },
+  { type: 'dynamic', property: 'properties.COLORID' },
+  { type: 'dynamic', property: 'properties.XZQH' },
+  { type: 'dynamic', property: 'properties.TSMC' },
+  { type: 'dynamic', property: 'properties.X' },
+  { type: 'dynamic', property: 'properties.Y' },
+] as const satisfies DynamicAttribute[]
 
-const baseURL = 'https://dmfw.mca.gov.cn/js/map/subject/'
 export function apply(ctx: Context, config: Config) {
+  function resolveScreenDims(
+    { width, height }: Partial<ScreenDims> = {},
+    aspectRatio?: number,
+  ): ScreenDims {
+    if (!width)
+      width = aspectRatio && height ? height * aspectRatio : 640
+    if (!height)
+      height = aspectRatio ? (width ?? 0) / aspectRatio : 480
+    return { width, height }
+  }
+
+  const baseURL = 'https://dmfw.mca.gov.cn/js/map/subject/'
   async function resolveGeojson(data: string): Promise<GeoJSON> {
     if (/^\d{2}$/.test(data))
       return await ctx.http.get(`${data}.json`, { baseURL })
@@ -52,15 +61,6 @@ export function apply(ctx: Context, config: Config) {
       return await ctx.http.get(data)
     return JSON.parse(data)
   }
-
-  const attributes = [
-    { type: 'dynamic', property: 'properties.TYPE', key: 'data-type' },
-    { type: 'dynamic', property: 'properties.COLORID', key: 'data-color-id' },
-    { type: 'dynamic', property: 'properties.XZQH', key: 'data-code' },
-    { type: 'dynamic', property: 'properties.TSMC', key: 'data-name' },
-    { type: 'dynamic', property: 'properties.X', key: 'data-lon' },
-    { type: 'dynamic', property: 'properties.Y', key: 'data-lat' },
-  ]
 
   ctx.command('geojson <data:string>')
     .option('width', '-W <width:posint>')
@@ -85,21 +85,20 @@ export function apply(ctx: Context, config: Config) {
         - dataSize.height * Math.max(1, viewAspectRatio)
       const [dx, dy] = [Math.max(-delta, 0) / 2, -Math.max(delta, 0) / 2]
       const converter = new GeoJSON2SVG({ viewportSize, attributes })
-      const coordinateConverter: Options['coordinateConverter'] = ([x, y]) => [x + dx, y + dy]
-      const svgPaths = converter.convert(geojson, { coordinateConverter }).flatMap(h.parse)
-      svgPaths.forEach(path => path.attrs.fill = config.palette[path.attrs.dataColorId - 1])
-      const svg = h('svg', viewportSize)
-      options?.graph && svg.children.push(...svgPaths);
-      (options?.dot || options?.code || options?.label) && svgPaths.forEach((path) => {
-        let [cx, cy]: [number, number] = [path.attrs.dataLon, path.attrs.dataLat];
+      const convertOptions: Options = { coordinateConverter: ([x, y]) => [x + dx, y + dy] }
+      const svgPaths = converter.convert(geojson, convertOptions).flatMap(h.parse)
+      return h('html', h('svg', viewportSize, svgPaths.map(({ attrs: { d, ...props } }) => {
+        let [cx, cy]: [number, number] = [props.X, props.Y];
         [cx, cy] = reproject({ type: 'Point', coordinates: [cx, cy] }).coordinates
         cx = remap(cx + dx - west, 0, dataSize.width, 0, contentWidth)
         cy = remap(cy + dy - south, 0, dataSize.height, contentHeight, 0)
-        options?.dot && svg.children.push(h('circle', { cx, cy, r: options.dot, fill: 'black' }))
-        options?.code && svg.children.push(h('text', { x: cx, y: cy }, path.attrs.dataCode))
-        options?.label && svg.children.push(h('text', { x: cx, y: cy }, path.attrs.dataName))
-      })
-      return h('html', svg)
+        return h('g', props, [
+          options?.graph && h('path', { d, fill: config.palette[props.COLORID - 1] }),
+          options?.dot && h('circle', { cx, cy, r: options.dot, fill: 'black' }),
+          options?.code && h('text', { x: cx, y: cy }, props.XZQH),
+          options?.label && h('text', { x: cx, y: cy }, props.TSMC),
+        ].filter(maybeElement => h.isElement(maybeElement)))
+      })))
     })
 }
 
