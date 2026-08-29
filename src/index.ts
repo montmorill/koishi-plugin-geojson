@@ -47,9 +47,12 @@ export function apply(ctx: Context, config: Config) {
     if (/^\d{4}$/.test(data))
       return await ctx.http.get(`city/${data}.json`, { baseURL })
     if (/^\d{6}$/.test(data)) {
-      const fc = await ctx.http.get<FeatureCollection>(`city/${data.slice(0, 4)}.json`, { baseURL })
-      fc.features = fc.features.filter(feature => feature.properties?.XZQH === data)
-      return fc
+      return await ctx.http.get(`city/${data.slice(0, 4)}.json`, { baseURL })
+        .then((geojson: FeatureCollection) => {
+          geojson.features = geojson.features
+            .filter(({ properties }) => data === properties!.XZQH)
+          return geojson
+        })
     }
     if (/^https?:\/\//.test(data))
       return await ctx.http.get(data)
