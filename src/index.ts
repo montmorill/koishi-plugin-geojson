@@ -1,5 +1,5 @@
 import type { FeatureCollection, GeoJSON } from 'geojson'
-import type { DynamicAttribute, Options, ScreenDims } from 'geojson2svg'
+import type { DynamicAttribute, ScreenDims } from 'geojson2svg'
 import type { Context } from 'koishi'
 import { GeoJSON2SVG } from 'geojson2svg'
 import geojsonBbox from 'geojson-bbox'
@@ -9,12 +9,14 @@ import reproject from 'reproject-spherical-mercator'
 export const name = 'geojson'
 
 export interface Config {
+  defaultArea: number
   defaultDot: number
   palette: string[]
 }
 
 export const Config: Schema<Config> = Schema.object({
-  defaultDot: Schema.number().min(0).default(2),
+  defaultArea: Schema.number().min(0).default(640 * 480),
+  defaultDot: Schema.number().min(0).default(1),
   palette: Schema.array(Schema.string().role('color')).default([
     'rgba(236,  85, 158, 0.5)',
     'rgba(236, 133,  45, 0.5)',
@@ -36,13 +38,11 @@ const attributes = [
 
 export function apply(ctx: Context, config: Config) {
   function resolveScreenDims(
-    { width, height }: Partial<ScreenDims> = {},
-    aspectRatio?: number,
+    aspectRatio: number,
+    area = config.defaultArea,
   ): ScreenDims {
-    if (!width)
-      width = aspectRatio && height ? height * aspectRatio : 640
-    if (!height)
-      height = aspectRatio ? (width ?? 0) / aspectRatio : 480
+    const width = Math.sqrt(area * aspectRatio)
+    const height = width / aspectRatio
     return { width, height }
   }
 
@@ -63,10 +63,9 @@ export function apply(ctx: Context, config: Config) {
   }
 
   ctx.command('geojson <data:string>')
-    .option('width', '-W <width:posint>')
-    .option('height', '-H <height:posint>')
+    .option('area', '--area <area:posint>')
     .option('graph', '-G')
-    .option('dot', '-D [radius:number]')
+    .option('dot', '-r [radius:number]')
     .option('code', '-C')
     .option('label', '-L')
     .action(async ({ options }, data) => {
@@ -76,22 +75,18 @@ export function apply(ctx: Context, config: Config) {
       const [west, south, east, north] = geojsonBbox(geojson)
       const dataSize = { width: east - west, height: north - south }
       const dataAspectRatio = dataSize.width / dataSize.height
-      const viewportSize = resolveScreenDims(options, dataAspectRatio)
+      const viewportSize = resolveScreenDims(dataAspectRatio, options?.area)
       const viewAspectRatio = viewportSize.width / viewportSize.height
       const scaleFactor = dataAspectRatio / viewAspectRatio
       const contentWidth = viewportSize.width * Math.min(1, scaleFactor)
       const contentHeight = viewportSize.height / Math.max(1, scaleFactor)
-      const delta = dataSize.width / Math.min(1, viewAspectRatio)
-        - dataSize.height * Math.max(1, viewAspectRatio)
-      const [dx, dy] = [Math.max(-delta, 0) / 2, -Math.max(delta, 0) / 2]
       const converter = new GeoJSON2SVG({ viewportSize, attributes })
-      const convertOptions: Options = { coordinateConverter: ([x, y]) => [x + dx, y + dy] }
-      const svgPaths = converter.convert(geojson, convertOptions).flatMap(h.parse)
+      const svgPaths = converter.convert(geojson).flatMap(h.parse)
       return h('html', h('svg', viewportSize, svgPaths.map(({ attrs: { d, ...props } }) => {
         let [cx, cy]: [number, number] = [props.X, props.Y];
         [cx, cy] = reproject({ type: 'Point', coordinates: [cx, cy] }).coordinates
-        cx = remap(cx + dx - west, 0, dataSize.width, 0, contentWidth)
-        cy = remap(cy + dy - south, 0, dataSize.height, contentHeight, 0)
+        cx = remap(cx - west, 0, dataSize.width, 0, contentWidth)
+        cy = remap(cy - south, 0, dataSize.height, contentHeight, 0)
         return h('g', props, [
           options?.graph && h('path', { d, fill: config.palette[props.COLORID - 1] }),
           options?.dot && h('circle', { cx, cy, r: options.dot, fill: 'black' }),
