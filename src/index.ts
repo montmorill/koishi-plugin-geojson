@@ -1,6 +1,8 @@
-import type { Feature, FeatureCollection, GeoJSON } from 'geojson'
+import type { FeatureCollection, GeoJSON } from 'geojson'
 import type { DynamicAttribute, ScreenDims } from 'geojson2svg'
 import type { Context } from 'koishi'
+import { mkdir, writeFile } from 'node:fs/promises'
+import { resolve } from 'node:path'
 import {} from '@koishijs/assets'
 import { GeoJSON2SVG } from 'geojson2svg'
 import geojsonBbox from 'geojson-bbox'
@@ -37,7 +39,7 @@ const attributes = [
   { type: 'dynamic', property: 'properties.Y' },
 ] as const satisfies DynamicAttribute[]
 
-export function apply(ctx: Context, config: Config) {
+export async function apply(ctx: Context, config: Config) {
   function resolveScreenDims(
     aspectRatio: number,
     area = config.defaultArea,
@@ -47,21 +49,36 @@ export function apply(ctx: Context, config: Config) {
     return { width, height }
   }
 
-  const baseURL = 'https://dmfw.mca.gov.cn/js/map/subject/'
+  const cachePath = resolve(ctx.baseDir, 'cache', name)
+  await mkdir(resolve(cachePath, 'city'), { recursive: true })
+  async function retrieveSubject(pathname: string): Promise<FeatureCollection> {
+    const fullPath = resolve(cachePath, pathname)
+    try {
+      return await import(fullPath)
+    }
+    catch {
+      const data = await ctx.http.get(pathname, {
+        baseURL: 'https://dmfw.mca.gov.cn/js/map/subject/',
+      })
+      await writeFile(fullPath, JSON.stringify(data))
+      return data
+    }
+  }
+
   async function resolveGeometry(item: string): Promise<GeoJSON> {
     if (/^\d{2}$/.test(item))
-      return await ctx.http.get(`${item}.json`, { baseURL })
+      return await retrieveSubject(`${item}.json`)
     if (/^\d{4}$/.test(item))
-      return await ctx.http.get(`city/${item}.json`, { baseURL })
+      return await retrieveSubject(`city/${item}.json`)
     if (/^\d{6}$/.test(item)) {
-      return await ctx.http.get(`city/${item.slice(0, 4)}.json`, { baseURL })
-        .then((geojson: FeatureCollection) => {
+      return await retrieveSubject(`city/${item.slice(0, 4)}.json`)
+        .then((geojson) => {
           geojson.features = geojson.features
             .filter(({ properties }) => item === properties!.XZQH)
           return geojson
         })
     }
-    throw new Error(`resolveGeometry: failed to parse ${item}`)
+    throw new Error(`failed to resolve ${item}`)
   }
 
   async function resolveFeatureCollection(items: number[]): Promise<FeatureCollection> {
@@ -71,12 +88,7 @@ export function apply(ctx: Context, config: Config) {
         return geometry.features
       if (geometry.type === 'Feature')
         return [geometry]
-      return [<Feature>{
-        type: 'Feature',
-        id: item,
-        geometry,
-        properties: null,
-      }]
+      throw new Error(`geometry type ${geometry.type} is not supported.`)
     }))).flat()
     return { type: 'FeatureCollection', features }
   }
