@@ -7,7 +7,7 @@ import geojsonBbox from 'geojson-bbox'
 import { h, Schema } from 'koishi'
 import reproject from 'reproject-spherical-mercator'
 
-export const name = 'geojson'
+export const name = 'geometry'
 
 export interface Config {
   defaultArea: number
@@ -81,7 +81,7 @@ export function apply(ctx: Context, config: Config) {
     return { type: 'FeatureCollection', features }
   }
 
-  ctx.command('geojson <items...:posint>')
+  ctx.command('geometry <items...:posint>')
     .option('area', '-A <area:posint>')
     .option('graph', '-G')
     .option('dot', '-D [radius:number]')

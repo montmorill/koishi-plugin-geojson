@@ -1,5 +1,5 @@
 {
-  "name": "koishi-plugin-geojson",
+  "name": "koishi-plugin-geometry",
   "description": "",
   "version": "0.0.1",
   "main": "lib/index.js",
@@ -12,7 +12,8 @@
   "keywords": [
     "chatbot",
     "koishi",
-    "plugin"
+    "plugin",
+    "geometry"
   ],
   "peerDependencies": {
     "koishi": "^4.18.7"
