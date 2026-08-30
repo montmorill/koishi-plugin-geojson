@@ -55,19 +55,23 @@ export function apply(ctx: Context, config: Config) {
           return geojson
         })
     }
-    throw new Error(`failed to parse Geometry: ${item}`)
+    throw new Error(`resolveGeometry: failed to parse ${item}`)
   }
 
   async function resolveFeatureCollection(items: number[]): Promise<FeatureCollection> {
-    const features = await Promise.all(items.map(async (item) => {
+    const features = (await Promise.all(items.map(async (item) => {
       const geometry = await resolveGeometry(String(item))
-      return <Feature>{
+      if (geometry.type === 'FeatureCollection')
+        return geometry.features
+      if (geometry.type === 'Feature')
+        return [geometry]
+      return [<Feature>{
         type: 'Feature',
         id: item,
         geometry,
         properties: null,
-      }
-    }))
+      }]
+    }))).flat()
     return { type: 'FeatureCollection', features }
   }
 
