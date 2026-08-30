@@ -1,6 +1,7 @@
-import type { FeatureCollection, GeoJSON } from 'geojson'
+import type { Feature, FeatureCollection, GeoJSON } from 'geojson'
 import type { DynamicAttribute, ScreenDims } from 'geojson2svg'
 import type { Context } from 'koishi'
+import {} from '@koishijs/assets'
 import { GeoJSON2SVG } from 'geojson2svg'
 import geojsonBbox from 'geojson-bbox'
 import { h, Schema } from 'koishi'
@@ -41,34 +42,45 @@ export function apply(ctx: Context, config: Config) {
   }
 
   const baseURL = 'https://dmfw.mca.gov.cn/js/map/subject/'
-  async function resolveGeojson(data: string): Promise<GeoJSON> {
-    if (/^\d{2}$/.test(data))
-      return await ctx.http.get(`${data}.json`, { baseURL })
-    if (/^\d{4}$/.test(data))
-      return await ctx.http.get(`city/${data}.json`, { baseURL })
-    if (/^\d{6}$/.test(data)) {
-      return await ctx.http.get(`city/${data.slice(0, 4)}.json`, { baseURL })
+  async function resolveGeometry(item: string): Promise<GeoJSON> {
+    if (/^\d{2}$/.test(item))
+      return await ctx.http.get(`${item}.json`, { baseURL })
+    if (/^\d{4}$/.test(item))
+      return await ctx.http.get(`city/${item}.json`, { baseURL })
+    if (/^\d{6}$/.test(item)) {
+      return await ctx.http.get(`city/${item.slice(0, 4)}.json`, { baseURL })
         .then((geojson: FeatureCollection) => {
           geojson.features = geojson.features
-            .filter(({ properties }) => data === properties!.XZQH)
+            .filter(({ properties }) => item === properties!.XZQH)
           return geojson
         })
     }
-    if (/^https?:\/\//.test(data))
-      return await ctx.http.get(data)
-    return JSON.parse(data)
+    throw new Error(`failed to parse Geometry: ${item}`)
   }
 
-  ctx.command('geojson <data:string>')
+  async function resolveFeatureCollection(items: number[]): Promise<FeatureCollection> {
+    const features = await Promise.all(items.map(async (item) => {
+      const geometry = await resolveGeometry(String(item))
+      return <Feature>{
+        type: 'Feature',
+        id: item,
+        geometry,
+        properties: null,
+      }
+    }))
+    return { type: 'FeatureCollection', features }
+  }
+
+  ctx.command('geojson <items...:posint>')
     .option('area', '-A <area:posint>')
     .option('graph', '-G')
     .option('dot', '-D [radius:number]')
     .option('code', '-C')
     .option('label', '-L')
-    .action(async ({ options }, data) => {
+    .action(async ({ options }, ...items) => {
       if (options?.dot === 0)
         options.dot = config.defaultDot
-      const geojson = reproject(await resolveGeojson(data))
+      const geojson = reproject(await resolveFeatureCollection(items))
       const [west, south, east, north] = geojsonBbox(geojson)
       const dataSize = { width: east - west, height: north - south }
       const dataAspectRatio = dataSize.width / dataSize.height
