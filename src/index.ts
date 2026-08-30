@@ -83,6 +83,7 @@ export function apply(ctx: Context, config: Config) {
 
   ctx.command('geometry <items...:posint>')
     .option('area', '-A <area:posint>')
+    .option('scale', '-R <factor:posint>')
     .option('graph', '-G')
     .option('dot', '-D [radius:number]')
     .option('code', '-C')
@@ -94,7 +95,9 @@ export function apply(ctx: Context, config: Config) {
       const [west, south, east, north] = geojsonBbox(geojson)
       const dataSize = { width: east - west, height: north - south }
       const dataAspectRatio = dataSize.width / dataSize.height
-      const viewportSize = resolveScreenDims(dataAspectRatio, options?.area)
+      const viewportSize = options?.scale
+        ? { width: dataSize.width / options.scale, height: dataSize.height / options.scale }
+        : resolveScreenDims(dataAspectRatio, options?.area)
       const viewAspectRatio = viewportSize.width / viewportSize.height
       const scaleFactor = dataAspectRatio / viewAspectRatio
       const contentWidth = viewportSize.width * Math.min(1, scaleFactor)
