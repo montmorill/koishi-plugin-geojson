@@ -49,18 +49,17 @@ export async function apply(ctx: Context, config: Config) {
     return { width, height }
   }
 
-  const cachePath = resolve(ctx.baseDir, 'cache', name)
-  await mkdir(resolve(cachePath, 'city'), { recursive: true })
+  const baseURL = 'https://dmfw.mca.gov.cn/js/map/subject/'
+  const cacheDir = resolve(ctx.baseDir, 'cache', name)
+  await mkdir(resolve(cacheDir, 'city'), { recursive: true })
   async function retrieveSubject(pathname: string): Promise<FeatureCollection> {
-    const fullPath = resolve(cachePath, pathname)
+    const subjectPath = resolve(cacheDir, pathname)
     try {
-      return await import(fullPath)
+      return await import(subjectPath)
     }
     catch {
-      const data = await ctx.http.get(pathname, {
-        baseURL: 'https://dmfw.mca.gov.cn/js/map/subject/',
-      })
-      await writeFile(fullPath, JSON.stringify(data))
+      const data = await ctx.http.get(pathname, { baseURL })
+      await writeFile(subjectPath, JSON.stringify(data))
       return data
     }
   }
@@ -72,10 +71,10 @@ export async function apply(ctx: Context, config: Config) {
       return await retrieveSubject(`city/${item}.json`)
     if (/^\d{6}$/.test(item)) {
       return await retrieveSubject(`city/${item.slice(0, 4)}.json`)
-        .then((geojson) => {
-          geojson.features = geojson.features
+        .then((collection) => {
+          collection.features = collection.features
             .filter(({ properties }) => item === properties!.XZQH)
-          return geojson
+          return collection
         })
     }
     throw new Error(`failed to resolve ${item}`)
