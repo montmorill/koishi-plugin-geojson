@@ -49,40 +49,42 @@ export async function apply(ctx: Context, config: Config) {
     return { width, height }
   }
 
-  const baseURL = 'https://dmfw.mca.gov.cn/js/map/subject/'
   const cacheDir = resolve(ctx.baseDir, 'cache', name)
-  await mkdir(resolve(cacheDir, 'city'), { recursive: true })
-  async function retrieveSubject(pathname: string): Promise<FeatureCollection> {
-    const subjectPath = resolve(cacheDir, pathname)
+  async function retrieveGeometry<T extends GeoJSON>(url: string): Promise<T> {
+    const subjectPath = resolve(cacheDir, url.replaceAll('://', '/'))
     try {
       return await import(subjectPath)
     }
     catch {
-      const data = await ctx.http.get(pathname, { baseURL })
+      const data = await ctx.http.get(url)
+      await mkdir(resolve(subjectPath, '..'), { recursive: true })
       await writeFile(subjectPath, JSON.stringify(data))
       return data
     }
   }
 
+  const baseURL = 'https://dmfw.mca.gov.cn/js/map/subject'
   async function resolveGeometry(item: string): Promise<GeoJSON> {
-    if (/^\d{2}$/.test(item))
-      return await retrieveSubject(`${item}.json`)
+    if (/^\d{2}$/.test(item) || item === 'china')
+      return await retrieveGeometry(`${baseURL}/${item}.json`)
     if (/^\d{4}$/.test(item))
-      return await retrieveSubject(`city/${item}.json`)
+      return await retrieveGeometry(`${baseURL}/city/${item}.json`)
     if (/^\d{6}$/.test(item)) {
-      return await retrieveSubject(`city/${item.slice(0, 4)}.json`)
+      return await retrieveGeometry<FeatureCollection>(`${baseURL}/city/${item.slice(0, 4)}.json`)
         .then((collection) => {
           collection.features = collection.features
             .filter(({ properties }) => item === properties!.XZQH)
           return collection
         })
     }
+    if (item.match('https?://'))
+      return await retrieveGeometry(item)
     throw new Error(`failed to resolve ${item}`)
   }
 
-  async function resolveFeatureCollection(items: number[]): Promise<FeatureCollection> {
+  async function resolveFeatureCollection(items: string[]): Promise<FeatureCollection> {
     const features = (await Promise.all(items.map(async (item) => {
-      const geometry = await resolveGeometry(String(item))
+      const geometry = await resolveGeometry(item)
       if (geometry.type === 'FeatureCollection')
         return geometry.features
       if (geometry.type === 'Feature')
@@ -92,18 +94,20 @@ export async function apply(ctx: Context, config: Config) {
     return { type: 'FeatureCollection', features }
   }
 
-  ctx.command('geometry <items...:posint>')
+  ctx.command('geometry <items...:string>')
     .option('area', '-A <area:posint>')
     .option('scale', '-R <factor:posint>')
     .option('graph', '-G')
     .option('dot', '-D [radius:number]')
     .option('code', '-C')
     .option('label', '-L')
+    .option('no-reproject', '-P')
     .action(async ({ options }, ...items) => {
       if (options?.dot === 0)
         options.dot = config.defaultDot
-      const geojson = reproject(await resolveFeatureCollection(items))
-      const [west, south, east, north] = geojsonBbox(geojson)
+      let collection = await resolveFeatureCollection(items.sort())
+      options?.['no-reproject'] || (collection = reproject(collection))
+      const [west, south, east, north] = geojsonBbox(collection)
       const dataSize = { width: east - west, height: north - south }
       const dataAspectRatio = dataSize.width / dataSize.height
       const viewportSize = options?.scale
@@ -114,9 +118,9 @@ export async function apply(ctx: Context, config: Config) {
       const contentWidth = viewportSize.width * Math.min(1, scaleFactor)
       const contentHeight = viewportSize.height / Math.max(1, scaleFactor)
       const converter = new GeoJSON2SVG({ viewportSize, attributes })
-      const svgPaths = converter.convert(geojson).flatMap(h.parse)
+      const svgPaths = converter.convert(collection).flatMap(h.parse)
       const children: h[] = []
-      children.push(...svgPaths.map(({ attrs }) =>
+      options?.graph && children.push(...svgPaths.map(({ attrs }) =>
         h('path', { ...attrs, fill: config.palette[attrs.COLORID - 1] })))
       if (options?.dot || options?.code || options?.label) {
         children.push(...svgPaths.map(({ attrs: { d, ...props } }) => {
@@ -131,7 +135,15 @@ export async function apply(ctx: Context, config: Config) {
           ].filter(maybeElement => h.isElement(maybeElement)))
         }))
       }
-      return h('html', h('svg', viewportSize, children))
+      const content = h('svg', { xmlns: 'http://www.w3.org/2000/svg', ...viewportSize }, children)
+      const filename = `${items.join('+')}${Object.entries(options ?? {})
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([key, value]) => `.${key}${value === true ? '' : value}`)
+        .join('')}.svg`
+      const filePath = resolve(cacheDir, filename.replaceAll(':', ''))
+      await mkdir(resolve(filePath, '..'), { recursive: true })
+      await writeFile(filePath, content.toString())
+      return h('html', content)
     })
 }
 
