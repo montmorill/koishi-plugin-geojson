@@ -58,6 +58,8 @@ export async function apply(ctx: Context, config: Config) {
   async function resolveGeometry(item: string): Promise<GeoJSON> {
     if (/^\d{2}$/.test(item) || item === 'china')
       return await retrieveGeometry(`${baseURL}/${item}.json`)
+    if (item === 'mainData')
+      return await retrieveGeometry(`${baseURL}/../mainData/mainData.json`)
     if (/^\d{4}$/.test(item))
       return await retrieveGeometry(`${baseURL}/city/${item}.json`)
     if (/^\d{6}$/.test(item)) {
@@ -115,15 +117,20 @@ export async function apply(ctx: Context, config: Config) {
       options.graph && children.push(...svgPaths.map(({ attrs }) =>
         h('path', { ...attrs, fill: config.palette[attrs.COLORID - 1] })))
       if (options.dot || options.code || options.label) {
-        children.push(...svgPaths.map(({ attrs: { d, ...props } }) => {
-          let [x, y]: [number, number] = [props.X, props.Y];
-          [x, y] = reproject({ type: 'Point', coordinates: [x, y] }).coordinates
+        children.push(...svgPaths.map(({ attrs }) => {
+          const match = attrs.d.match(/^M(\d+(?:\.\d+)?),(\d+(?:\.\d+)?) m-1,0 a1,1 0 1,1 2,0 a1,1 0 1,1 -2,0$/)
+          if (match)
+            return { attrs, x: Number.parseFloat(match[1]), y: Number.parseFloat(match[2]) }
+          let [x, y] = reproject({ type: 'Point', coordinates: [attrs.X, attrs.Y] }).coordinates
           x = remap(x - west, 0, dataSize.width, 0, contentWidth)
           y = remap(y - south, 0, dataSize.height, contentHeight, 0)
+          return { attrs, x, y }
+        }).map(({ x, y, attrs: { d, ...props } }) => {
+          const textAttrs = { x, y, 'text-anchor': 'middle' }
           return h('g', props, [
             options.dot && h('circle', { cx: x, cy: y, r: options.dot, fill: 'black' }),
-            options.code && h('text', { x, y, 'text-anchor': 'middle', 'dominant-baseline': 'hanging' }, props.XZQH),
-            options.label && h('text', { x, y, 'text-anchor': 'middle', 'dominant-baseline': 'baseline' }, props.TSMC),
+            options.code && h('text', { ...textAttrs, 'dominant-baseline': 'hanging' }, props.XZQH ?? props.xzqh),
+            options.label && h('text', { ...textAttrs, 'dominant-baseline': 'baseline' }, props.TSMC ?? props.tsmc),
           ].filter(maybeElement => h.isElement(maybeElement)))
         }))
       }
