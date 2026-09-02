@@ -1,10 +1,10 @@
+import type { ScreenDims } from '@montmorill/geojson2svg'
 import type { FeatureCollection, GeoJSON } from 'geojson'
-import type { DynamicAttribute, ScreenDims } from 'geojson2svg'
 import type { Context } from 'koishi'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import {} from '@koishijs/assets'
-import { GeoJSON2SVG } from 'geojson2svg'
+import { GeoJSON2SVG } from '@montmorill/geojson2svg'
 import geojsonBbox from 'geojson-bbox'
 import { h, Schema } from 'koishi'
 import reproject from 'reproject-spherical-mercator'
@@ -29,15 +29,6 @@ export const Config: Schema<Config> = Schema.object({
     'rgba(231, 122, 122, 0.5)',
   ]),
 })
-
-const attributes = [
-  { type: 'dynamic', property: 'properties.TYPE' },
-  { type: 'dynamic', property: 'properties.COLORID' },
-  { type: 'dynamic', property: 'properties.XZQH' },
-  { type: 'dynamic', property: 'properties.TSMC' },
-  { type: 'dynamic', property: 'properties.X' },
-  { type: 'dynamic', property: 'properties.Y' },
-] as const satisfies DynamicAttribute[]
 
 export async function apply(ctx: Context, config: Config) {
   function resolveScreenDims(
@@ -77,7 +68,7 @@ export async function apply(ctx: Context, config: Config) {
           return collection
         })
     }
-    if (item.match('https?://'))
+    if (item.match('^https?://'))
       return await retrieveGeometry(item)
     throw new Error(`failed to resolve ${item}`)
   }
@@ -99,44 +90,49 @@ export async function apply(ctx: Context, config: Config) {
     .option('scale', '-R <factor:posint>')
     .option('graph', '-G')
     .option('dot', '-D [radius:number]')
-    .option('code', '-C')
     .option('label', '-L')
+    .option('code', '-C')
+    .option('font-size', '-T [size:number]', { fallback: 8 })
     .option('no-reproject', '-P')
-    .action(async ({ options }, ...items) => {
-      if (options?.dot === 0)
+    .action(async ({ options = {} }, ...items) => {
+      if (options.dot === 0)
         options.dot = config.defaultDot
-      let collection = await resolveFeatureCollection(items.sort())
-      options?.['no-reproject'] || (collection = reproject(collection))
+      let collection = await resolveFeatureCollection(items)
+      options['no-reproject'] || (collection = reproject(collection))
       const [west, south, east, north] = geojsonBbox(collection)
       const dataSize = { width: east - west, height: north - south }
       const dataAspectRatio = dataSize.width / dataSize.height
-      const viewportSize = options?.scale
+      const viewportSize = options.scale
         ? { width: dataSize.width / options.scale, height: dataSize.height / options.scale }
-        : resolveScreenDims(dataAspectRatio, options?.area)
+        : resolveScreenDims(dataAspectRatio, options.area)
       const viewAspectRatio = viewportSize.width / viewportSize.height
       const scaleFactor = dataAspectRatio / viewAspectRatio
       const contentWidth = viewportSize.width * Math.min(1, scaleFactor)
       const contentHeight = viewportSize.height / Math.max(1, scaleFactor)
-      const converter = new GeoJSON2SVG({ viewportSize, attributes })
+      const converter = new GeoJSON2SVG({ viewportSize, attributes: true })
       const svgPaths = converter.convert(collection).flatMap(h.parse)
       const children: h[] = []
-      options?.graph && children.push(...svgPaths.map(({ attrs }) =>
+      options.graph && children.push(...svgPaths.map(({ attrs }) =>
         h('path', { ...attrs, fill: config.palette[attrs.COLORID - 1] })))
-      if (options?.dot || options?.code || options?.label) {
+      if (options.dot || options.code || options.label) {
         children.push(...svgPaths.map(({ attrs: { d, ...props } }) => {
-          let [cx, cy]: [number, number] = [props.X, props.Y];
-          [cx, cy] = reproject({ type: 'Point', coordinates: [cx, cy] }).coordinates
-          cx = remap(cx - west, 0, dataSize.width, 0, contentWidth)
-          cy = remap(cy - south, 0, dataSize.height, contentHeight, 0)
+          let [x, y]: [number, number] = [props.X, props.Y];
+          [x, y] = reproject({ type: 'Point', coordinates: [x, y] }).coordinates
+          x = remap(x - west, 0, dataSize.width, 0, contentWidth)
+          y = remap(y - south, 0, dataSize.height, contentHeight, 0)
           return h('g', props, [
-            options?.dot && h('circle', { cx, cy, r: options.dot, fill: 'black' }),
-            options?.code && h('text', { x: cx, y: cy }, props.XZQH),
-            options?.label && h('text', { x: cx, y: cy }, props.TSMC),
+            options.dot && h('circle', { cx: x, cy: y, r: options.dot, fill: 'black' }),
+            options.code && h('text', { x, y, 'text-anchor': 'middle', 'dominant-baseline': 'hanging' }, props.XZQH),
+            options.label && h('text', { x, y, 'text-anchor': 'middle', 'dominant-baseline': 'baseline' }, props.TSMC),
           ].filter(maybeElement => h.isElement(maybeElement)))
         }))
       }
-      const content = h('svg', { xmlns: 'http://www.w3.org/2000/svg', ...viewportSize }, children)
-      const filename = `${items.join('+')}${Object.entries(options ?? {})
+      const content = h('svg', {
+        'xmlns': 'http://www.w3.org/2000/svg',
+        'font-size': options['font-size'],
+        ...viewportSize,
+      }, children)
+      const filename = `${items.sort().join('+')}${Object.entries(options ?? {})
         .sort(([a], [b]) => a.localeCompare(b))
         .map(([key, value]) => `.${key}${value === true ? '' : value}`)
         .join('')}.svg`
