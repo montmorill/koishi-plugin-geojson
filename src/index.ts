@@ -127,19 +127,11 @@ export async function apply(ctx: Context, config: Config) {
           ].filter(maybeElement => h.isElement(maybeElement)))
         }))
       }
-      const content = h('svg', {
+      return h('html', h('svg', {
         'xmlns': 'http://www.w3.org/2000/svg',
         'font-size': options['font-size'],
         ...viewportSize,
-      }, children)
-      const filename = `${items.sort().join('+')}${Object.entries(options ?? {})
-        .sort(([a], [b]) => a.localeCompare(b))
-        .map(([key, value]) => `.${key}${value === true ? '' : value}`)
-        .join('')}.svg`
-      const filePath = resolve(cacheDir, filename.replaceAll(':', ''))
-      await mkdir(resolve(filePath, '..'), { recursive: true })
-      await writeFile(filePath, content.toString())
-      return h('html', content)
+      }, children))
     })
 }
 
